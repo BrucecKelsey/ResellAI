@@ -4,76 +4,33 @@ from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
 from scrape import collect_poshmark_data
-import os
 import warnings
 warnings.filterwarnings('ignore', category=FutureWarning)
 
 class ResellMarketAnalyzer:
-    def __init__(self, data_file="resell_data.csv"):
-        self.data_file = data_file
-        self.items_df = self.load_data()
+    def __init__(self):
+        self.items_df = pd.DataFrame(columns=[
+            'title', 'brand', 'color', 'gender', 'type', 'price',
+            'original_price', 'size', 'condition', 'department',
+            'category', 'days_to_sell'
+        ], dtype=object)
         self.label_encoders = {}
         self.model = RandomForestClassifier(n_estimators=100, random_state=42)
         self.median_days = None
         
-    def load_data(self):
-        """Load existing data from CSV, ensuring numeric columns are floats."""
-        if os.path.exists(self.data_file):
-            try:
-                df = pd.read_csv(self.data_file, dtype=str)
-                for col in ['price', 'original_price', 'days_to_sell']:
-                    df[col] = pd.to_numeric(df[col], errors='coerce')
-                return df
-            except Exception as e:
-                print(f"Error loading {self.data_file}: {e}")
-                return pd.DataFrame(columns=[
+    def collect_and_process_data(self, brands):
+        for brand in brands:
+            df = collect_poshmark_data(brand)
+            if not df.empty:
+                processed_df = df[[
                     'title', 'brand', 'color', 'gender', 'type', 'price',
                     'original_price', 'size', 'condition', 'department',
                     'category', 'days_to_sell'
-                ])
-        return pd.DataFrame(columns=[
-            'title', 'brand', 'color', 'gender', 'type', 'price',
-            'original_price', 'size', 'condition', 'department',
-            'category', 'days_to_sell'
-        ])
-        
-    def save_data(self):
-        """Save current items_df to CSV with error handling."""
-        try:
-            self.items_df.to_csv(self.data_file, index=False)
-        except PermissionError as e:
-            print(f"Permission denied when saving to {self.data_file}: {e}")
-            print("Ensure the file is not open in another program and try again.")
-            raise
-        
-    def collect_and_process_data(self, brands, force_refresh=False):
-        """Collect data from API or use stored data."""
-        if force_refresh or self.items_df.empty:
-            print("Fetching new data from API...")
-            new_data = pd.DataFrame()
-            for brand in brands:
-                df = collect_poshmark_data(brand)
-                if not df.empty:
-                    processed_df = df[[
-                        'title', 'brand', 'color', 'gender', 'type', 'price',
-                        'original_price', 'size', 'condition', 'department',
-                        'category', 'days_to_sell'
-                    ]].dropna(how='all')
-                    if not processed_df.empty:
-                        for col in ['price', 'original_price', 'days_to_sell']:
-                            processed_df[col] = pd.to_numeric(processed_df[col], errors='coerce')
-                        for col in processed_df.columns:
-                            if col not in ['price', 'original_price', 'days_to_sell']:
-                                processed_df[col] = processed_df[col].astype(str)
-                        new_data = pd.concat([new_data, processed_df], ignore_index=True)
-            
-            if not new_data.empty:
-                self.items_df = pd.concat([self.items_df, new_data], ignore_index=True)
-                self.items_df.drop_duplicates(subset=['title'], keep='last', inplace=True)
-                self.save_data()
-            print(f"Collected {len(new_data)} new items. Total items: {len(self.items_df)}")
-        else:
-            print(f"Using stored data with {len(self.items_df)} items.")
+                ]].dropna(how='all')
+                if not processed_df.empty:
+                    for col in processed_df.columns:
+                        processed_df[col] = processed_df[col].astype(object)
+                    self.items_df = pd.concat([self.items_df, processed_df], ignore_index=True)
         
     def preprocess_data(self):
         df_processed = self.items_df.copy()
@@ -105,9 +62,9 @@ class ResellMarketAnalyzer:
                 df_processed[column].fillna('unknown')
             )
             
-        df_processed['price'] = pd.to_numeric(df_processed['price'], errors='coerce').fillna(0)
-        df_processed['original_price'] = pd.to_numeric(df_processed['original_price'], errors='coerce').fillna(df_processed['price'])
-        df_processed['days_to_sell'] = pd.to_numeric(df_processed['days_to_sell'], errors='coerce').fillna(-1)
+        df_processed['price'] = df_processed['price'].astype(float).fillna(0)
+        df_processed['original_price'] = df_processed['original_price'].astype(float).fillna(df_processed['price'])
+        df_processed['days_to_sell'] = df_processed['days_to_sell'].astype(float).fillna(-1)
         
         return df_processed
 
@@ -180,10 +137,10 @@ class ResellMarketAnalyzer:
         return trends
 
 if __name__ == "__main__":
-    analyzer = ResellMarketAnalyzer(data_file="resell_data.csv")
+    analyzer = ResellMarketAnalyzer()
     
     brands = ['nike', 'converse', 'adidas']
-    analyzer.collect_and_process_data(brands, force_refresh=False)  # Set to False to use stored data
+    analyzer.collect_and_process_data(brands)
     
     print(analyzer.train_model())
     
